@@ -20,6 +20,18 @@ Parameters:
     Description: The name for the color teller image
     Type: String
 
+  SideCarRouterManagerImageName:
+    Type: String
+    Description: The name for Sidecar router manager image that sets up networking for the proxy
+
+  AppMeshEgressIgnoredIpCsv:
+    Type: String
+    Default: 169.254.170.2,169.254.169.254
+
+  ExternalProxyImageName:
+    Description: The name for the color teller image
+    Type: String
+
   LoadBalancerCertificateArn:
     Description: NLB TLS Certificate Arn
     Type: String
@@ -50,8 +62,6 @@ Resources:
   ColorTellerWhiteTaskDefinition:
     Type: AWS::ECS::TaskDefinition
     Properties:
-      RequiresCompatibilities:
-        - 'FARGATE'
       Family: !Sub '${EnvironmentName}-colorteller-white'
       NetworkMode: 'awsvpc'
       Cpu: 256
@@ -90,6 +100,7 @@ Resources:
               awslogs-stream-prefix: 'white'
           PortMappings:
             - ContainerPort: 9080
+              HostPort: 9080
               Protocol: 'http'
           Environment:
             - Name: 'SERVER_PORT'
@@ -106,10 +117,13 @@ Resources:
               SoftLimit: 15000
           PortMappings:
             - ContainerPort: 9901
+              HostPort: 9901
               Protocol: 'tcp'
             - ContainerPort: 15000
+              HostPort: 15000
               Protocol: 'tcp'
             - ContainerPort: 15001
+              HostPort: 15001
               Protocol: 'tcp'
           HealthCheck:
             Command:
@@ -138,7 +152,7 @@ Resources:
         MaximumPercent: 200
         MinimumHealthyPercent: 100
       DesiredCount: 1
-      LaunchType: FARGATE
+      LaunchType: EC2
       ServiceRegistries:
         - RegistryArn:
             'Fn::GetAtt': ColorTellerWhiteServiceDiscoveryRecord.Arn
@@ -169,8 +183,6 @@ Resources:
   ColorTellerBlackTaskDefinition:
     Type: AWS::ECS::TaskDefinition
     Properties:
-      RequiresCompatibilities:
-        - 'FARGATE'
       Family: !Sub '${EnvironmentName}-colorteller-black'
       NetworkMode: 'awsvpc'
       Cpu: 256
@@ -209,6 +221,7 @@ Resources:
               awslogs-stream-prefix: 'black'
           PortMappings:
             - ContainerPort: 9080
+              HostPort: 9080
               Protocol: 'http'
           Environment:
             - Name: 'SERVER_PORT'
@@ -225,10 +238,13 @@ Resources:
               SoftLimit: 15000
           PortMappings:
             - ContainerPort: 9901
+              HostPort: 9901
               Protocol: 'tcp'
             - ContainerPort: 15000
+              HostPort: 15000
               Protocol: 'tcp'
             - ContainerPort: 15001
+              HostPort: 15001
               Protocol: 'tcp'
           HealthCheck:
             Command:
@@ -257,7 +273,7 @@ Resources:
         MaximumPercent: 200
         MinimumHealthyPercent: 100
       DesiredCount: 1
-      LaunchType: FARGATE
+      LaunchType: EC2
       ServiceRegistries:
         - RegistryArn:
             'Fn::GetAtt': ColorTellerBlackServiceDiscoveryRecord.Arn
@@ -288,8 +304,6 @@ Resources:
   ColorTellerBlueTaskDefinition:
     Type: AWS::ECS::TaskDefinition
     Properties:
-      RequiresCompatibilities:
-        - 'FARGATE'
       Family: !Sub '${EnvironmentName}-colorteller-blue'
       NetworkMode: 'awsvpc'
       Cpu: 256
@@ -328,6 +342,7 @@ Resources:
               awslogs-stream-prefix: 'blue'
           PortMappings:
             - ContainerPort: 9080
+              HostPort: 9080
               Protocol: 'http'
           Environment:
             - Name: 'SERVER_PORT'
@@ -344,10 +359,13 @@ Resources:
               SoftLimit: 15000
           PortMappings:
             - ContainerPort: 9901
+              HostPort: 9901
               Protocol: 'tcp'
             - ContainerPort: 15000
+              HostPort: 15000
               Protocol: 'tcp'
             - ContainerPort: 15001
+              HostPort: 15001
               Protocol: 'tcp'
           HealthCheck:
             Command:
@@ -376,7 +394,7 @@ Resources:
         MaximumPercent: 200
         MinimumHealthyPercent: 100
       DesiredCount: 1
-      LaunchType: FARGATE
+      LaunchType: EC2
       ServiceRegistries:
         - RegistryArn:
             'Fn::GetAtt': ColorTellerBlueServiceDiscoveryRecord.Arn
@@ -407,8 +425,6 @@ Resources:
   ColorTellerRedTaskDefinition:
     Type: AWS::ECS::TaskDefinition
     Properties:
-      RequiresCompatibilities:
-        - 'FARGATE'
       Family: !Sub '${EnvironmentName}-colorteller-red'
       NetworkMode: 'awsvpc'
       Cpu: 256
@@ -447,6 +463,7 @@ Resources:
               awslogs-stream-prefix: 'red'
           PortMappings:
             - ContainerPort: 9080
+              HostPort: 9080
               Protocol: 'http'
           Environment:
             - Name: 'SERVER_PORT'
@@ -463,10 +480,13 @@ Resources:
               SoftLimit: 15000
           PortMappings:
             - ContainerPort: 9901
+              HostPort: 9901
               Protocol: 'tcp'
             - ContainerPort: 15000
+              HostPort: 15000
               Protocol: 'tcp'
             - ContainerPort: 15001
+              HostPort: 15001
               Protocol: 'tcp'
           HealthCheck:
             Command:
@@ -495,7 +515,7 @@ Resources:
         MaximumPercent: 200
         MinimumHealthyPercent: 100
       DesiredCount: 1
-      LaunchType: FARGATE
+      LaunchType: EC2
       ServiceRegistries:
         - RegistryArn:
             'Fn::GetAtt': ColorTellerRedServiceDiscoveryRecord.Arn
@@ -526,8 +546,6 @@ Resources:
   ColorGatewayTaskDefinition:
     Type: AWS::ECS::TaskDefinition
     Properties:
-      RequiresCompatibilities:
-        - 'FARGATE'
       Family: !Sub '${EnvironmentName}-colorgateway'
       NetworkMode: 'awsvpc'
       Cpu: 256
@@ -537,17 +555,23 @@ Resources:
       ExecutionRoleArn:
         'Fn::ImportValue': !Sub "${EnvironmentName}:TaskExecutionIamRoleArn"
       ContainerDefinitions:
-        - Name: 'app'
+        - Name: 'app-envoy'
           Image: !Ref EnvoyImage
           Essential: true
+          DependsOn:
+            - ContainerName: 'nginx'
+              Condition: 'START'
+          User: "1337"
           Ulimits:
             - Name: "nofile"
               HardLimit: 15000
               SoftLimit: 15000
           PortMappings:
             - ContainerPort: 9901
+              HostPort: 9901
               Protocol: 'tcp'
             - ContainerPort: 9080
+              HostPort: 9080
               Protocol: 'tcp'
           HealthCheck:
             Command:
@@ -567,36 +591,46 @@ Resources:
           Environment:
             - Name: 'APPMESH_VIRTUAL_NODE_NAME'
               Value: !Sub 'mesh/${AppMeshMeshName}/virtualGateway/colorgateway-vg'
-            - Name: 'ENABLE_ENVOY_STATS_TAGS'
-              Value: '1'
-            - Name: 'ENABLE_ENVOY_DOG_STATSD'
-              Value: '1'
-            - Name: 'STATSD_PORT'
-              Value: '8125'
-        - Name: 'cw-agent'
-          Image: 'amazon/cloudwatch-agent:latest'
+            - Name: 'ENVOY_LOG_LEVEL'
+              Value: 'debug'
+        - Name: 'nginx'
+          Image: !Sub '${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${ExternalProxyImageName}'
           Essential: true
-          PortMappings:
-            - ContainerPort: 8125
-              Protocol: 'udp'
-          Environment:
-            - Name: CW_CONFIG_CONTENT
-              Value:
-                Fn::Sub:
-                  - "{ \"metrics\": { \"namespace\":\"${MetricNamespace}\", \"metrics_collected\": { \"statsd\": { \"metrics_aggregation_interval\": 0}}}}"
-                  - MetricNamespace:
-                      Fn::Join:
-                      - '/'
-                      - - !Ref EnvironmentName
-                        - gateway-envoy
-                        - StatsD
+          DependsOn:
+            - ContainerName: 'proxyinit'
+              Condition: 'SUCCESS'
           LogConfiguration:
             LogDriver: 'awslogs'
             Options:
               awslogs-group:
                 Fn::ImportValue: !Sub "${EnvironmentName}:ECSServiceLogGroup"
               awslogs-region: !Ref AWS::Region
-              awslogs-stream-prefix: 'gateway-cw-agent'
+              awslogs-stream-prefix: 'gateway-nginx'
+        - Name: "proxyinit"
+          Image: !Sub '${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${SideCarRouterManagerImageName}'
+          Essential: false
+          LogConfiguration:
+            LogDriver: "awslogs"
+            Options:
+              awslogs-group:
+                'Fn::ImportValue': !Sub "${EnvironmentName}:ECSServiceLogGroup"
+              awslogs-region: { Ref: "AWS::Region" }
+              awslogs-stream-prefix: "gateway-proxyinit"
+          LinuxParameters:
+            Capabilities:
+              Add:
+                - "NET_ADMIN"
+          Environment:
+            - Name: "APPMESH_START_ENABLED"
+              Value: "1"
+            - Name: "APPMESH_IGNORE_UID"
+              Value: "1337"
+            - Name: "APPMESH_ENVOY_EGRESS_PORT"
+              Value: "15001"
+            - Name: "APPMESH_ENVOY_LOCAL_FORWARD_PORT"
+              Value: "10000"
+            - Name: "APPMESH_EGRESS_IGNORED_IP"
+              Value: { Ref: AppMeshEgressIgnoredIpCsv }
 
   ColorGatewayService:
     Type: 'AWS::ECS::Service'
@@ -609,7 +643,7 @@ Resources:
         MaximumPercent: 200
         MinimumHealthyPercent: 100
       DesiredCount: 1
-      LaunchType: FARGATE
+      LaunchType: EC2
       ServiceRegistries:
         - RegistryArn:
             'Fn::GetAtt': ColorGatewayServiceDiscoveryRecord.Arn
@@ -623,7 +657,7 @@ Resources:
             - 'Fn::ImportValue': !Sub "${EnvironmentName}:PrivateSubnet2"
       TaskDefinition: { Ref: ColorGatewayTaskDefinition }
       LoadBalancers:
-        - ContainerName: app
+        - ContainerName: app-envoy
           ContainerPort: 9080
           TargetGroupArn: !Ref WebTargetGroup
 

@@ -4,9 +4,27 @@ Parameters:
     Description: The name for the color teller image
     Type: String
 
+  SideCarRouterManagerImageName:
+    Description: The name for the sidecar router manager image
+    Type: String
+
+  ExternalProxyImageName:
+    Description: The name for the external proxy image
+    Type: String
+
 Resources:
 
   ColorTellerRepository:
     Type: AWS::ECR::Repository
     Properties:
       RepositoryName: !Ref ColorTellerImageName
+
+  SideCarRouterManagerRepository:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: !Ref SideCarRouterManagerImageName
+
+  ExternalProxyRepository:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: !Ref ExternalProxyImageName

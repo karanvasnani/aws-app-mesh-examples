@@ -10,4 +10,6 @@ aws --region "${AWS_DEFAULT_REGION}" \
     --capabilities CAPABILITY_IAM \
     --template-file "${DIR}/ecr-repositories.yaml" \
     --parameter-overrides \
-    ColorTellerImageName="${COLOR_TELLER_IMAGE_NAME}"
+    ColorTellerImageName="${COLOR_TELLER_IMAGE_NAME}" \
+    SideCarRouterManagerImageName="${SIDECAR_ROUTER_MANAGER_IMAGE_NAME}" \
+    ExternalProxyImageName="${EXTERNAL_PROXY_IMAGE_NAME}"

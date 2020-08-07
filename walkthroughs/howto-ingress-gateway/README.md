@@ -85,6 +85,10 @@ Internet --> (terminate TLS) NLB (originate TLS) --> (terminate TLS) Gateway (or
 
 ![System Diagram](./howto-ingress-gateway.png "System Diagram")
 
+Additionally, at the gateway task an external proxy (Nginx) will be used to proxy all traffic passing through Envoy and will be configured to emit Access Logs in a custom json format (specified in `src/nginx/nginx.conf` file). In order to achieve this routing Iptable networking will be setup using a `proxyinit` container. The flow of traffic at the gateway would be as below:
+
+	Ingress traffic → Envoy Ingress Port → Nginx Inbound Port → Envoy Egress Port → Upstream Application
+
  Let's now jump into an example of App Mesh Ingress in action.
 
 ## Step 1: Prerequisites
@@ -114,6 +118,8 @@ export MESH_NAME=ColorApp-Ingress
 export ENVOY_IMAGE=<get the latest from https://docs.aws.amazon.com/app-mesh/latest/userguide/envoy.html>
 export SERVICES_DOMAIN="default.svc.cluster.local"
 export COLOR_TELLER_IMAGE_NAME="howto-ingress/colorteller"
+export SIDECAR_ROUTER_MANAGER_IMAGE_NAME="howto-ingress/proxyinit"
+export EXTERNAL_PROXY_IMAGE_NAME="howto-ingress/nginx"
 ```
 
 ## Step 3: Generate Certificate from ACM
@@ -227,11 +233,15 @@ Finally, build and deploy the colorteller image.
 
 ```bash
 ./src/colorteller/deploy.sh
+./src/nginx/deploy.sh
+./src/proxyinit/deploy.sh
 ```
 Note that the example app uses go modules. If you have trouble accessing https://proxy.golang.org during the deployment you can override the GOPROXY by setting `GO_PROXY=direct`
 
 ```bash
 GO_PROXY=direct ./src/colorteller/deploy.sh
+GO_PROXY=direct ./src/nginx/deploy.sh
+GO_PROXY=direct ./src/proxyinit/deploy.sh
 ```
 
 ## Step 5: Create a Mesh
@@ -319,14 +329,14 @@ Our next step is to deploy the service in ECS and test it out.
 	Bastion endpoint:
 	12.345.6.789
 	ColorApp endpoint:
-	http://howto-Publi-55555555.us-west-2.elb.amazonaws.com
+	https://howto-Publi-55555555.us-west-2.elb.amazonaws.com
 	```
 	> **Note:** Since, we have enabled TLS termination at the NLB, we'll use `https` in our curl requests and use `-k` option to accept the cert without validation.
 
-	Export the public endpoint to access the gateway replacing `http` with `https` (e.g., above returned url will be changed to `https://howto-Publi-55555555.us-west-2.elb.amazonaws.com`).
+	Export the public endpoint to access the gateway.
 
 	```bash
-	export COLORAPP_ENDPOINT=<your_https_colorApp_endpoint e.g. https://howto-Publi-55555555.us-west-2.elb.amazonaws.com>
+	export COLORAPP_ENDPOINT=<your_colorApp_endpoint e.g. https://howto-Publi-55555555.us-west-2.elb.amazonaws.com>
 	```
 	And export the bastion endpoint for use later.
 
@@ -359,6 +369,12 @@ Our next step is to deploy the service in ECS and test it out.
 	curl -s http://colorgateway.default.svc.cluster.local:9901/stats | grep ssl.handshake
 	```
 You should see output similar to: `listener.0.0.0.0_9080.ssl.handshake: 1`, indicating a successful SSL handshake was achieved between the NLB and the gateway. At this point the traffic from NLB to the VirtualGateway is encrypted while the traffic from VirtualGateway to VirtualNodes is not.
+
+4. Follow these steps to see the emitted access logs from the Nginx proxy:
+  - Log in to your AWS account.
+  - Navigate to CloudWatch logs console.
+  - Click on the log-group starting with the name `${EnvironmentName}:ECSServiceLogGroup`.
+  - Click on nginx log-stream starting with the prefix `gateway-nginx` to see the access log in the custom format as specified in `nginx.conf` file.
 
 ## Step 7: Initiate TLS at the Gateway
 
@@ -505,6 +521,8 @@ Delete the CloudFormation stacks:
 aws cloudformation delete-stack --stack-name $ENVIRONMENT_NAME-ecs-service
 aws cloudformation delete-stack --stack-name $ENVIRONMENT_NAME-ecs-cluster
 aws ecr delete-repository --force --repository-name $COLOR_TELLER_IMAGE_NAME
+aws ecr delete-repository --force --repository-name $SIDECAR_ROUTER_MANAGER_IMAGE_NAME
+aws ecr delete-repository --force --repository-name $EXTERNAL_PROXY_IMAGE_NAME
 aws cloudformation delete-stack --stack-name $ENVIRONMENT_NAME-ecr-repositories
 aws cloudformation delete-stack --stack-name $ENVIRONMENT_NAME-vpc
 ```

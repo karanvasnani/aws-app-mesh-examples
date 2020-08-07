@@ -14,6 +14,8 @@ aws --region "${AWS_DEFAULT_REGION}" \
     ECSServicesDomain="${SERVICES_DOMAIN}" \
     AppMeshMeshName="${MESH_NAME}" \
     EnvoyImage="${ENVOY_IMAGE}" \
+    SideCarRouterManagerImageName="${SIDECAR_ROUTER_MANAGER_IMAGE_NAME}" \
+    ExternalProxyImageName="${EXTERNAL_PROXY_IMAGE_NAME}" \
     ColorTellerImageName="${COLOR_TELLER_IMAGE_NAME}" \
     LoadBalancerCertificateArn="${CERTIFICATE_ARN}"
 
