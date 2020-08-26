@@ -13,7 +13,7 @@ ECR_URL="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_DEFAULT_REGION}.amazonaws.com"
 IMAGE="${ECR_URL}/${SIDECAR_ROUTER_MANAGER_IMAGE_NAME}:latest"
 
 # build
-docker build -t $IMAGE $DIR --build-arg GO_PROXY=${GO_PROXY:-"https://proxy.golang.org"}
+docker build -t $IMAGE $DIR
 
 # login
 AWS_CLI_VERSION=$(aws --version 2>&1 | cut -d/ -f2 | cut -d. -f1)

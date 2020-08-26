@@ -105,6 +105,24 @@ create_gateway_route() {
     print "--> ${uid}"
 }
 
+update_gateway_route() {
+    spec_file=$1
+    vgateway_name=$2
+    gatewayroute_name=$3
+    cli_input=$( jq -n \
+        --arg VIRTUALSERVICE_NAME "$4" \
+        -f "$spec_file" )
+    cmd=( $appmesh_cmd update-gateway-route \
+                --mesh-name "${MESH_NAME}" \
+                --virtual-gateway-name "${vgateway_name}" \
+                --gateway-route-name "${gatewayroute_name}" \
+                --cli-input-json "$cli_input" \
+                --query gatewayRoute.metadata.uid --output text )
+    print "${cmd[@]}"
+    uid=$("${cmd[@]}") || err "Unable to update gateway route" "$?"
+    print "--> ${uid}"
+}
+
 delete_gateway_route() {
     vgateway_name=$1
     gatewayroute_name=$2
@@ -250,23 +268,30 @@ main() {
 
     case "$action" in
     up)
-        create_mesh "${TEST_MESH_DIR}/mesh.json"
-
-        create_vnode "${TEST_MESH_DIR}/colorteller-white-vn.json" "colorteller-white-vn" "colorteller-white"
-        create_vnode "${TEST_MESH_DIR}/colorteller-blue-vn.json" "colorteller-blue-vn" "colorteller-blue"
-        create_vrouter "${TEST_MESH_DIR}/colorteller-vr-1.json" "colorteller-vr-1"
-        create_route "${TEST_MESH_DIR}/colorteller-route-1.json" "colorteller-vr-1" "colorteller-route-1"
-        create_vservice "${TEST_MESH_DIR}/colorteller-vs-1.json" "colorteller-1.${SERVICES_DOMAIN}"
-
-        create_vnode "${TEST_MESH_DIR}/colorteller-black-vn.json" "colorteller-black-vn" "colorteller-black"
-        create_vnode "${TEST_MESH_DIR}/colorteller-red-vn.json" "colorteller-red-vn" "colorteller-red"
-        create_vrouter "${TEST_MESH_DIR}/colorteller-vr-2.json" "colorteller-vr-2"        
-        create_route "${TEST_MESH_DIR}/colorteller-route-2.json" "colorteller-vr-2" "colorteller-route-2" 
-        create_vservice "${TEST_MESH_DIR}/colorteller-vs-2.json" "colorteller-2.${SERVICES_DOMAIN}"
-
-        create_vgateway "${TEST_MESH_DIR}/colorgateway-vg.json" "colorgateway-vg"
-        create_gateway_route "${TEST_MESH_DIR}/colorgateway-route-1.json" "colorgateway-vg" "colorgateway-route-1" "colorteller-1.${SERVICES_DOMAIN}"
-        create_gateway_route "${TEST_MESH_DIR}/colorgateway-route-2.json" "colorgateway-vg" "colorgateway-route-2" "colorteller-2.${SERVICES_DOMAIN}"
+        aws --region "${AWS_DEFAULT_REGION}" \
+            cloudformation deploy \
+            --stack-name "${ENVIRONMENT_NAME}-appmesh-mesh" \
+            --capabilities CAPABILITY_IAM \
+            --template-file "${TEST_MESH_DIR}/mesh.yaml" \
+            --parameter-overrides \
+            MeshName="${MESH_NAME}" \
+            GatewayRoute1Prefix="/color1" \
+            GatewayRoute2Prefix="/color2" \
+            ServicesDomain="${SERVICES_DOMAIN}" \
+            CertificateArn="${CERTIFICATE_ARN}"
+        ;;
+    hostname_routing)
+        aws --region "${AWS_DEFAULT_REGION}" \
+            cloudformation update-stack \
+            --stack-name "${ENVIRONMENT_NAME}-appmesh-mesh" \
+            --capabilities CAPABILITY_IAM \
+            --use-previous-template \
+            --parameters \
+            ParameterKey=MeshName,UsePreviousValue=true \
+            ParameterKey=ServicesDomain,UsePreviousValue=true \
+            ParameterKey=CertificateArn,UsePreviousValue=true \
+            ParameterKey=GatewayRoute1Prefix,ParameterValue="/" \
+            ParameterKey=GatewayRoute2Prefix,ParameterValue="/"
         ;;
     partial_tls_up)
         update_vnode "${TEST_MESH_DIR}/colorteller-white-vn-tls.json" "colorteller-white-vn" "colorteller-white"
@@ -278,23 +303,7 @@ main() {
         update_vnode "${TEST_MESH_DIR}/colorteller-red-vn-tls.json" "colorteller-red-vn" "colorteller-red"
         ;;
     down)
-        delete_gateway_route "colorgateway-vg" "colorgateway-route-1"
-        delete_gateway_route "colorgateway-vg" "colorgateway-route-2"
-        delete_vgateway "colorgateway-vg"
-
-        delete_vservice "colorteller-1.${SERVICES_DOMAIN}"
-        delete_route "colorteller-vr-1" "colorteller-route-1"
-        delete_vrouter "colorteller-vr-1"
-        delete_vnode "colorteller-white-vn"
-        delete_vnode "colorteller-blue-vn"
-
-        delete_vservice "colorteller-2.${SERVICES_DOMAIN}"
-        delete_route "colorteller-vr-2" "colorteller-route-2"
-        delete_vrouter "colorteller-vr-2"
-        delete_vnode "colorteller-black-vn"
-        delete_vnode "colorteller-red-vn"
-
-        delete_mesh
+        aws cloudformation delete-stack --stack-name $ENVIRONMENT_NAME-appmesh-mesh
         ;;
     *)
         err "Invalid action specified: $action"

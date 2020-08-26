@@ -54,14 +54,17 @@ A virtual gateway allows resources outside your mesh to communicate to resources
 	- Validation determines how to validate a certificate offered by a backend.
 	- Trust is the trust bundle (i.e. set of root certificate authorities) used to validate the certificate offered by a backend. Certificates signed by one of these certificate authorities are considered valid.
 
-- **GatewayRoute:** Gateway Routes allows specifying routing conditions that match the incoming request and determines the Virtual Service to redirect the request to. These conditions are specified as match conditions (`prefix` for HTTP/HTTP2 routes and `serviceName` for GRPC). A sample spec for the GatewayRoute is as follows:
+- **GatewayRoute:** Gateway Routes allows specifying routing conditions that match the incoming request and determines the Virtual Service to redirect the request to. These conditions are specified as match conditions (`prefix` and `hostname` for HTTP/HTTP2 routes and `serviceName` for GRPC). A sample spec for the GatewayRoute is as follows:
 
 	```json
 	{
     "spec": {
         "httpRoute" : {
             "match" : {
-                "prefix" : "/color1"
+                "prefix" : "/color1",
+                "hostname": {
+                    "exact": $VIRTUALSERVICE_NAME
+                }
             },
             "action" : {
                 "target" : {
@@ -87,7 +90,7 @@ Internet --> (terminate TLS) NLB (originate TLS) --> (terminate TLS) Gateway (or
 
 Additionally, at the gateway task an external proxy (Nginx) will be used to proxy all traffic passing through Envoy and will be configured to emit Access Logs in a custom json format (specified in `src/nginx/nginx.conf` file). In order to achieve this routing Iptable networking will be setup using a `proxyinit` container. The flow of traffic at the gateway would be as below:
 
-	Ingress traffic → Envoy Ingress Port → Nginx Inbound Port → Envoy Egress Port → Upstream Application
+![System Diagram](./gateway-proxy-routing.png "Flow of traffic at the gateway")
 
  Let's now jump into an example of App Mesh Ingress in action.
 
@@ -236,17 +239,15 @@ Finally, build and deploy the colorteller image.
 ./src/nginx/deploy.sh
 ./src/proxyinit/deploy.sh
 ```
-Note that the example app uses go modules. If you have trouble accessing https://proxy.golang.org during the deployment you can override the GOPROXY by setting `GO_PROXY=direct`
+Note that the colorteller app uses go modules. If you have trouble accessing https://proxy.golang.org during the deployment you can override the GOPROXY by setting `GO_PROXY=direct`
 
 ```bash
 GO_PROXY=direct ./src/colorteller/deploy.sh
-GO_PROXY=direct ./src/nginx/deploy.sh
-GO_PROXY=direct ./src/proxyinit/deploy.sh
 ```
 
 ## Step 5: Create a Mesh
 
-This mesh is a variation of the original Color App Example, so we have four colorteller services all returning different colors (white, blue, red and black). These VirtualNodes will be target for two VirtualServices which will be exposed to clients outside the mesh via colorgateway which is a VirtualGateway. Both the virtualServices will be routed from virtualGateway using two gatewayRoutes matching on different prefixes. The spec for the VirtualGateway looks like this:
+This mesh is a variation of the original Color App Example, so we have four colorteller services all returning different colors (white, blue, red and black). These VirtualNodes will be target for two VirtualServices which will be exposed to clients outside the mesh via colorgateway which is a VirtualGateway. Both the virtualServices will be routed from virtualGateway using two gatewayRoutes matching on different prefixes and hostnames. The spec for the VirtualGateway looks like this:
 
 ```json
 {
@@ -262,14 +263,17 @@ This mesh is a variation of the original Color App Example, so we have four colo
   }
 }
 ```
-There are two HTTP GatewayRoutes attached to this VirtualGateway one for each VirtualService backend. One of the gatewayRoute will match on prefix `/color1` and other will match on prefix `/color2`. The spec for one of the GatewayRoutes is follows:
+There are two HTTP GatewayRoutes attached to this VirtualGateway one for each VirtualService backend. One of the gatewayRoute will match on prefix `/color1` and hostname `colorteller-1.${SERVICES_DOMAIN}` while the other will match on prefix `/color2` and hostname `colorteller-2.${SERVICES_DOMAIN}`. The spec for one of the GatewayRoutes is follows:
 
 ```json
 {
 "spec": {
     "httpRoute" : {
         "match" : {
-            "prefix" : "/color1"
+            "prefix" : "/color1",
+            "hostname": {
+                "exact": "colorteller-1.${SERVICES_DOMAIN}"
+            }
         },
         "action" : {
             "target" : {
@@ -344,21 +348,57 @@ Our next step is to deploy the service in ECS and test it out.
 	export BASTION_IP=<your_bastion_endpoint e.g. 12.245.6.189>
 	```
 
-2. Let's issue a request to the color gateway with gatewayRoute prefix as `/color1` and backend service route prefix as `/tell`.
+2. Let's issue a request to the color gateway with gatewayRoute prefix as `/color1`, hostname as `colorteller-1.${SERVICES_DOMAIN}` and backend service route prefix as `/tell`.
 
 	```bash
-	curl -k "${COLORAPP_ENDPOINT}/color1/tell"
+	curl -k -H "Host: colorteller-1.${SERVICES_DOMAIN}" "${COLORAPP_ENDPOINT}/color1/tell"
 	```
 	If you run above command several time you should see successful `white` and `blue` responses back from `colorteller-white-vn` and `colorteller-blue-vn` virtualNodes respectively. These are both the targets for `colorteller-2.${SERVICES_DOMAIN}` VirtualService.
 
-	Similarly, let's issue a request to the gateway with gatewayRoute prefix as `/color2` and backend service route prefix as `/tell`.
+	Similarly, let's issue a request to the gateway with gatewayRoute prefix as `/color2`, hostname as `colorteller-2.${SERVICES_DOMAIN}` and backend service route prefix as `/tell`.
 
 	```bash
-	curl -k "${COLORAPP_ENDPOINT}/color2/tell"
+	curl -k -H "Host: colorteller-2.${SERVICES_DOMAIN}" "${COLORAPP_ENDPOINT}/color2/tell"
 	```
 	In this case, you should receive `black` and `red` responses back from targets of `colorteller-2.${SERVICES_DOMAIN}` VirtualService.
 
-3. Now let's log in to the bastion host and see ssl handshake stats for the gateway envoy.
+3. Now let's update the GatewayRoutes to match only on hostname in request.
+	- In order to do this we'll update the gatewayRoute to set prefix as  `/` so that it matches any url path and selects a target virtualService based on hostname only. The sample gatewayRoute looks as:
+
+		```json
+		{
+		"spec": {
+		    "httpRoute" : {
+		        "match" : {
+		            "prefix" : "/",
+		            "hostname": {
+                        "exact": "colorteller-1.${SERVICES_DOMAIN}"
+		            }
+		        },
+		        "action" : {
+		            "target" : {
+		                "virtualService": {
+		                    "virtualServiceName": "colorteller-1.${SERVICES_DOMAIN}"
+		                }
+		            }
+		        }
+		    }
+		}
+		}
+		```
+	- Let's update the GatewayRoutes by running this command.
+
+		```bash
+		./mesh/mesh.sh hostname_routing
+		```
+	- Now let's issue the request again to the color gateway and verify that we get the color back in the response. Notice that the url doesn't contain `/color1` in the path as before meaning we're only routing based on hostname at the gateway.
+
+		```bash
+		curl -k -H "Host: colorteller-1.${SERVICES_DOMAIN}" "${COLORAPP_ENDPOINT}/tell"
+		curl -k -H "Host: colorteller-2.${SERVICES_DOMAIN}" "${COLORAPP_ENDPOINT}/tell"
+		```
+
+4. Now let's log in to the bastion host and see ssl handshake stats for the gateway envoy.
 
 	```bash
 	ssh -i <key_pair_location> ec2-user@$BASTION_IP
@@ -370,7 +410,7 @@ Our next step is to deploy the service in ECS and test it out.
 	```
 You should see output similar to: `listener.0.0.0.0_9080.ssl.handshake: 1`, indicating a successful SSL handshake was achieved between the NLB and the gateway. At this point the traffic from NLB to the VirtualGateway is encrypted while the traffic from VirtualGateway to VirtualNodes is not.
 
-4. Follow these steps to see the emitted access logs from the Nginx proxy:
+5. Follow these steps to see the emitted access logs from the Nginx proxy:
   - Log in to your AWS account.
   - Navigate to CloudWatch logs console.
   - Click on the log-group starting with the name `${EnvironmentName}:ECSServiceLogGroup`.
@@ -459,10 +499,10 @@ Let's update the `colorteller-white-vn` VirtualNode and `colorgateway-vg` Virtua
 ```
 
 ### Verify TLS
-Issue a request to the color gateway with prefix `/color1` to get encrypted response from `colorteller-white-vn`.
+Allow for configuration update to propagate to Envoy and issue a request to the color gateway with prefix `/color1` to get encrypted response from `colorteller-white-vn`.
 
 ```bash
-curl -k "${COLORAPP_ENDPOINT}/color1/tell"
+curl -k -H "Host: colorteller-1.${SERVICES_DOMAIN}" "${COLORAPP_ENDPOINT}/tell"
 ```
 If you run above command several times, you should see successful `white` response from only the `colorteller-white-vn` virtual node and a connection error as below for the `colorteller-blue-vn` virtual node.
 
@@ -472,7 +512,7 @@ upstream connect error or disconnect/reset before headers. reset reason: connect
 Similarly, try to curl `colorteller-black-vn` and `colorteller-red-vn` virtualNodes and verify we get a connection error as these virtualNodes don't have tls configuration at the listener.
 
 ```bash
-curl -k "${COLORAPP_ENDPOINT}/color2/tell"
+curl -k -H "Host: colorteller-2.${SERVICES_DOMAIN}" "${COLORAPP_ENDPOINT}/tell"
 ```
 
 Now, we'll enable TLS at the listener of other colorteller nodes too. Run the following commands to enable TLS at listener for `colorteller-blue-vn`, `colorteller-black-vn` and `colorteller-red-vn`.
@@ -481,11 +521,11 @@ Now, we'll enable TLS at the listener of other colorteller nodes too. Run the fo
 ./mesh/mesh.sh full_tls_up
 ```
 
-Now again let's send curl requests to all colortellers to verify that the encrypted traffic flows between all the virtualNodes and the virtualGateway.
+Wait for the updated config to be distributed to Envoy. Then let's send curl requests to all colortellers to verify that the encrypted traffic flows between all the virtualNodes and the virtualGateway.
 
 ```bash
-curl -k "${COLORAPP_ENDPOINT}/color1/tell"
-curl -k "${COLORAPP_ENDPOINT}/color2/tell"
+curl -k -H "Host: colorteller-1.${SERVICES_DOMAIN}" "${COLORAPP_ENDPOINT}/tell"
+curl -k -H "Host: colorteller-2.${SERVICES_DOMAIN}" "${COLORAPP_ENDPOINT}/tell"
 ```
 
 Finally, let's log in to the bastion host again and check the SSL handshake statistics for the gateway envoy.
@@ -510,12 +550,12 @@ listener.0.0.0.0_9080.ssl.handshake: 60
 
 That's it! We've encrypted traffic from our gateway to our colorteller nodes using a certificate from ACM.
 
-## Step 9: Clean Up
+## Step 8: Clean Up
 
 If you want to keep the application running, you can do so, but this is the end of this walkthrough.
 Run the following commands to clean up and tear down the resources that we’ve created.
 
-Delete the CloudFormation stacks:
+Delete the CloudFormation stacks. The stacks are dependent on each other so, follow the order of commands as specified and allow for deletion time of each stack before deleting the next.
 
 ```bash
 aws cloudformation delete-stack --stack-name $ENVIRONMENT_NAME-ecs-service
